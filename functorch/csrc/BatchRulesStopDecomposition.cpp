@@ -622,7 +622,6 @@ TORCH_LIBRARY_IMPL(aten, FT_BATCHED_KEY, m) {
   STOP_DECOMPOSE(diag_embed);
   STOP_DECOMPOSE(index_add);
   STOP_DECOMPOSE(index_add.alpha);
-  STOP_DECOMPOSE(index_copy);
   STOP_DECOMPOSE(new_empty_strided);
   STOP_DECOMPOSE(index_fill.int_Scalar);
   STOP_DECOMPOSE(index_fill.int_Tensor);

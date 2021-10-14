@@ -186,6 +186,81 @@ int64_t bdim_size(
   TORCH_INTERNAL_ASSERT(false);
 }
 
+std::tuple<Tensor,optional<int64_t>> index_copy_batch_rule(
+    const Tensor& self,
+    optional<int64_t> self_bdim,
+    int64_t dim,
+    const Tensor& index,
+    optional<int64_t> index_bdim,
+    const Tensor& source,
+    optional<int64_t> source_bdim) {
+
+  auto self_logical_rank = rankWithoutBatchDim(self, self_bdim);
+  // auto index_logical_rank = rankWithoutBatchDim(index, index_bdim);
+  auto source_logical_rank = rankWithoutBatchDim(source, source_bdim);
+  auto batch_size = bdim_size(self, self_bdim, index, index_bdim, source, source_bdim);
+
+  auto self_ = moveBatchDimToFront(self, self_bdim);
+  auto index_ = moveBatchDimToFront(index, index_bdim);
+  auto source_ = moveBatchDimToFront(source, source_bdim);
+  auto dim_ = maybe_wrap_dim(dim, self_logical_rank) + (self_logical_rank != 0 ? 1 : 0);
+
+  // auto ensure_has_bdim_at_dim = [](const Tensor &tensor, bool has_bdim, int64_t dim, int64_t batch_size)
+  // {
+  //   if (has_bdim)
+  //   {
+  //     return tensor;
+  //   }
+  //   const auto sizes = tensor.sizes();
+  //   VmapDimVector new_sizes(sizes.size());
+  //   for (auto size: sizes) {
+  //     new_sizes.emplace_back(size);
+  //   }
+  //   new_sizes.insert(new_sizes.begin() + dim, batch_size);
+  //   return tensor.expand(new_sizes);
+  // };
+
+  self_ = ensure_has_bdim(self_, self_bdim.has_value(), batch_size);
+  index_ = ensure_has_bdim(index_, index_bdim.has_value(), batch_size);
+  source_ = ensure_has_bdim(source_, source_bdim.has_value(), batch_size);
+
+  if (self_logical_rank != 0 && source_logical_rank != 0) {
+    auto arange_index = at::arange(0, batch_size, self.options().dtype(at::kLong));
+    VmapDimVector arange_shape(index_.dim(), 1);
+    arange_shape[0] = batch_size;
+    auto batched_index = (index_ + (arange_index.view(arange_shape) * self_.size(dim_))).view(-1);
+
+    auto self_shape = self_.sizes();
+    VmapDimVector new_self_shape(self_shape.size() - 1);
+    std::copy(self_shape.cbegin() + 1, self_shape.cend(), new_self_shape.begin());
+    std::cout << "NEW SELF SHAPE" << new_self_shape << "\n";
+    new_self_shape[dim] *= batch_size;
+
+    auto source_shape = source_.sizes();
+    VmapDimVector new_source_shape(source_shape.size() - 1);
+    std::copy(source_shape.cbegin() + 1, source_shape.cend(), new_source_shape.begin());
+    std::cout << "NEW SOURCE SHAPE" << new_source_shape << "\n";
+    new_source_shape[dim] *= batch_size;
+
+    std::cout << "SELF SHAPE:" << self_shape << "\n";
+    std::cout << "NEW SHAPE:" << new_self_shape << "\n";
+    std::cout << "TRANSPOSED SHAPE" << IntArrayRef{self_.transpose(0, dim).sizes()} << "\n";
+    auto result = at::index_copy(self_.reshape(new_self_shape), dim, batched_index, source_.reshape(new_source_shape)).view(self_shape);
+    return std::make_tuple(result, 0);
+  }
+
+  auto updated_index = index_.view(-1) + at::arange(0, batch_size, self.options().dtype(at::kLong));
+  auto self_view = self_.view({1, batch_size});
+  auto source_view = source_.view({1, batch_size});
+  auto result = at::index_copy(self_view, 1, updated_index, source_view);
+  if (self_logical_rank == 0) {
+    result = result.squeeze(0);
+  } else {
+    result = result.view(self_.sizes());
+  }
+  return std::make_tuple(result, 0);
+}
+
 namespace {
 
 template<typename Func, typename ...Args>
@@ -293,7 +368,6 @@ std::tuple<Tensor,optional<int64_t>> scatter_reduce_batch_rule(
     const Tensor& index, optional<int64_t> index_bdim,
     const Tensor& src, optional<int64_t> src_bdim,
     const c10::string_view reduce) {
-  using scatter_reduce_value_sig = Tensor (*)(const Tensor&, int64_t, const Tensor&, const Tensor&, const c10::string_view reduce);
   return scatter_batch_rule(ATEN_FN2(scatter, reduce),
                             self, self_bdim, dim, index, index_bdim, src, src_bdim, reduce);
 }
@@ -304,7 +378,6 @@ std::tuple<Tensor,optional<int64_t>> scatter_value_reduce_batch_rule(
     const Tensor& index, optional<int64_t> index_bdim,
     const Scalar& src,
     const c10::string_view reduce) {
-  using scatter_reduce_value_sig = Tensor (*)(const Tensor&, int64_t, const Tensor&, const Scalar&, const c10::string_view reduce);
   return scatter_batch_rule(ATEN_FN2(scatter, value_reduce),
                             self, self_bdim, dim, index, index_bdim, src, reduce);
 }
@@ -436,6 +509,7 @@ TORCH_LIBRARY_IMPL(aten, FT_BATCHED_KEY, m) {
   VMAP_SUPPORT("scatter.reduce", scatter_reduce_batch_rule);
   VMAP_SUPPORT("scatter.value_reduce", scatter_value_reduce_batch_rule);
   VMAP_SUPPORT("index_select", index_select_batch_rule);
+  VMAP_SUPPORT("index_copy", index_copy_batch_rule);
 
 }
 
