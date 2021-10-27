@@ -228,24 +228,18 @@ std::tuple<Tensor,optional<int64_t>> index_copy_batch_rule(
     auto arange_index = at::arange(0, batch_size, self.options().dtype(at::kLong));
     VmapDimVector arange_shape(index_.dim(), 1);
     arange_shape[0] = batch_size;
-    auto batched_index = (index_ + (arange_index.view(arange_shape) * self_.size(dim_))).view(-1);
-
+    auto batched_index = (index_ + (arange_index.reshape(arange_shape) * self_.size(dim_))).reshape(-1);
     auto self_shape = self_.sizes();
     VmapDimVector new_self_shape(self_shape.size() - 1);
     std::copy(self_shape.cbegin() + 1, self_shape.cend(), new_self_shape.begin());
-    std::cout << "NEW SELF SHAPE" << new_self_shape << "\n";
     new_self_shape[dim] *= batch_size;
 
     auto source_shape = source_.sizes();
     VmapDimVector new_source_shape(source_shape.size() - 1);
     std::copy(source_shape.cbegin() + 1, source_shape.cend(), new_source_shape.begin());
-    std::cout << "NEW SOURCE SHAPE" << new_source_shape << "\n";
     new_source_shape[dim] *= batch_size;
 
-    std::cout << "SELF SHAPE:" << self_shape << "\n";
-    std::cout << "NEW SHAPE:" << new_self_shape << "\n";
-    std::cout << "TRANSPOSED SHAPE" << IntArrayRef{self_.transpose(0, dim).sizes()} << "\n";
-    auto result = at::index_copy(self_.reshape(new_self_shape), dim, batched_index, source_.reshape(new_source_shape)).view(self_shape);
+    auto result = at::index_copy(self_.reshape(new_self_shape), dim, batched_index, source_.reshape(new_source_shape)).reshape(self_shape);
     return std::make_tuple(result, 0);
   }
 

@@ -86,8 +86,6 @@ def get_fallback_and_vmap_exhaustive(op, arg_values, kwarg_values, compute_loop_
         # def f(a):
         #     return op(a)
         # t = make_fx(vmap(f, in_dims=in_dims, out_dims=out_dim))(*batched_args, **kwarg_values)
-        print("**"*20)
-        print(in_dims, out_dim, kwarg_values)
         for x in batched_args:
             if isinstance(x, torch.Tensor):
                 # if x.dtype == torch.long:
