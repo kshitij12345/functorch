@@ -196,35 +196,19 @@ std::tuple<Tensor,optional<int64_t>> index_copy_batch_rule(
     optional<int64_t> source_bdim) {
 
   auto self_logical_rank = rankWithoutBatchDim(self, self_bdim);
-  // auto index_logical_rank = rankWithoutBatchDim(index, index_bdim);
   auto source_logical_rank = rankWithoutBatchDim(source, source_bdim);
   auto batch_size = bdim_size(self, self_bdim, index, index_bdim, source, source_bdim);
 
   auto self_ = moveBatchDimToFront(self, self_bdim);
   auto index_ = moveBatchDimToFront(index, index_bdim);
   auto source_ = moveBatchDimToFront(source, source_bdim);
-  auto dim_ = maybe_wrap_dim(dim, self_logical_rank) + (self_logical_rank != 0 ? 1 : 0);
-
-  // auto ensure_has_bdim_at_dim = [](const Tensor &tensor, bool has_bdim, int64_t dim, int64_t batch_size)
-  // {
-  //   if (has_bdim)
-  //   {
-  //     return tensor;
-  //   }
-  //   const auto sizes = tensor.sizes();
-  //   VmapDimVector new_sizes(sizes.size());
-  //   for (auto size: sizes) {
-  //     new_sizes.emplace_back(size);
-  //   }
-  //   new_sizes.insert(new_sizes.begin() + dim, batch_size);
-  //   return tensor.expand(new_sizes);
-  // };
 
   self_ = ensure_has_bdim(self_, self_bdim.has_value(), batch_size);
   index_ = ensure_has_bdim(index_, index_bdim.has_value(), batch_size);
   source_ = ensure_has_bdim(source_, source_bdim.has_value(), batch_size);
 
   if (self_logical_rank != 0 && source_logical_rank != 0) {
+    auto dim_ = maybe_wrap_dim(dim, self_logical_rank) + 1;
     auto arange_index = at::arange(0, batch_size, self.options().dtype(at::kLong));
     VmapDimVector arange_shape(index_.dim(), 1);
     arange_shape[0] = batch_size;
@@ -243,10 +227,10 @@ std::tuple<Tensor,optional<int64_t>> index_copy_batch_rule(
     return std::make_tuple(result, 0);
   }
 
-  auto updated_index = index_.view(-1) + at::arange(0, batch_size, self.options().dtype(at::kLong));
+  auto batched_index = index_.view(-1) + at::arange(0, batch_size, self.options().dtype(at::kLong));
   auto self_view = self_.view({1, batch_size});
   auto source_view = source_.view({1, batch_size});
-  auto result = at::index_copy(self_view, 1, updated_index, source_view);
+  auto result = at::index_copy(self_view, 1, batched_index, source_view);
   if (self_logical_rank == 0) {
     result = result.squeeze(0);
   } else {
