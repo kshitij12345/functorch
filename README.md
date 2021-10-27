@@ -55,11 +55,11 @@ source functorch-env/bin/activate
 Next, install one of the following following PyTorch nightly binaries.
 ```
 # For CUDA 10.2
-pip install --pre torch -f https://download.pytorch.org/whl/nightly/cu102/torch_nightly.html
+pip install --pre torch -f https://download.pytorch.org/whl/nightly/cu102/torch_nightly.html --upgrade
 # For CUDA 11.1
-pip install --pre torch -f https://download.pytorch.org/whl/nightly/cu111/torch_nightly.html
+pip install --pre torch -f https://download.pytorch.org/whl/nightly/cu111/torch_nightly.html --upgrade
 # For CPU-only build
-pip install --pre torch -f https://download.pytorch.org/whl/nightly/cpu/torch_nightly.html
+pip install --pre torch -f https://download.pytorch.org/whl/nightly/cpu/torch_nightly.html --upgrade
 ```
 If you already have a nightly of PyTorch installed and wanted to upgrade it
 (recommended!), append `--upgrade` to one of those commands.
@@ -67,7 +67,7 @@ If you already have a nightly of PyTorch installed and wanted to upgrade it
 Install functorch:
 ```
 pip install ninja  # Makes the build go faster
-pip install --user "git+https://github.com/facebookresearch/functorch.git"
+pip install --user "git+https://github.com/pytorch/functorch.git"
 ```
 
 Run a quick sanity check in python:
@@ -180,7 +180,7 @@ computes vjps given some `cotangents` Tensors.
 >>> from functorch import jacrev
 >>> x = torch.randn(5)
 >>> jacobian = jacrev(torch.sin)(x)
->>> expected = torch.diag(x)
+>>> expected = torch.diag(torch.cos(x))
 >>> assert torch.allclose(jacobian, expected)
 ```
 Use `jacrev` to compute the jacobian. This can be composed with vmap to produce
@@ -292,7 +292,7 @@ If you use functorch in your publication, please cite it by using the following 
 @Misc{functorch2021,
   author =       {Horace He, Richard Zou},
   title =        {functorch: JAX-like composable function transforms for PyTorch},
-  howpublished = {\url{https://github.com/facebookresearch/functorch}},
+  howpublished = {\url{https://github.com/pytorch/functorch}},
   year =         {2021}
 }
 ```

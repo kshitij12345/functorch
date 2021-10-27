@@ -16,14 +16,15 @@ import warnings
 import math
 from typing import Callable, Type
 from torch.testing._internal.common_device_type import instantiate_device_type_tests, \
-    skipCUDAIfNoMagma, onlyOnCPUAndCUDA, onlyCPU
+    skipCUDAIfNoMagma, onlyCPU
 import types
 from functools import partial, wraps
 
 import functorch
 from functorch import (
     grad, vjp, vmap, jacrev, grad_and_value,
-    make_functional_deprecated_v1, make_functional_with_buffers_deprecated_v1, make_fx, nnc_jit, compiled_function, compiled_module
+    make_functional_deprecated_v1, make_functional_with_buffers_deprecated_v1, make_fx, nnc_jit, compiled_function, compiled_module,
+    partition_with_recompute_fwd_in_bwd
 )
 
 from torch.testing._internal.common_device_type import ops, onlyCPU
@@ -98,6 +99,7 @@ class TestPythonKey(TestCase):
         new_cotangent = torch.randn(())
         self.assertEqual(fx_f(new_cotangent, True, True), vjp_fn(new_cotangent))
 
+    @unittest.expectedFailure
     def test_nnc_jit(self, device):
         def f(x):
             return torch.sin(x)
@@ -107,6 +109,7 @@ class TestPythonKey(TestCase):
         inp = torch.randn(3)
         self.assertEqual(jit_f(inp), f(inp))
 
+    @unittest.expectedFailure
     def test_nnc_jit_warns_on_recompilation(self, device):
         def f(x):
             return torch.sin(x)
@@ -124,6 +127,7 @@ class TestPythonKey(TestCase):
         self.assertEqual(len(warns), 1)
         self.assertTrue("Recompiling" in str(warns[-1].message))
 
+    @unittest.expectedFailure
     def test_nnc_scalar(self, device):
         def f(x):
             return torch.sin(x)
@@ -133,6 +137,7 @@ class TestPythonKey(TestCase):
         inp = torch.randn(())
         self.assertEqual(jit_f(inp), f(inp))
 
+    @unittest.expectedFailure
     def test_nnc_pytrees(self, device):
         def f(x):
             return [torch.sin(x[0])]
@@ -149,6 +154,7 @@ class TestPythonKey(TestCase):
         inp = [torch.randn(3, 3), torch.randn(3)]
         self.assertEqual(jit_f(*inp), f(*inp))
 
+    @unittest.expectedFailure
     def test_nnc_passthrough(self, device):
         def f(x, y):
             return x + y, y
@@ -188,6 +194,7 @@ class TestPythonKeyOperatorsOpInfo(TestCase):
     xfail('linalg.matrix_power'),
     xfail('linalg.inv'),
     xfail('linalg.cholesky'),
+    xfail('nn.functional.dropout'),
     xfail('linalg.eigvals'),
     xfail('nn.functional.pad', 'circular'),
     })
@@ -288,22 +295,21 @@ class TestEagerFusionOpInfo(TestCase):
         xfail('matmul'),
         xfail('nn.functional.gelu'),
         xfail('nn.functional.linear'),
+        xfail('nn.functional.dropout'),
         xfail('polar'),
         xfail('special.zeta', 'grad'),
         xfail('to_sparse'),
         xfail('addcdiv'),
-        xfail('atanh'),
-        xfail('addcdiv'),
-        xfail('atanh'),
+        xfail('angle'),
         xfail('cholesky'),
         xfail('cumulative_trapezoid'),
         xfail('diag_embed'),
         xfail('linalg.householder_product'),
         xfail('logit'),
         xfail('matrix_exp'),
+        xfail('sgn'),
         xfail('trapezoid'),
         xfail('trapz'),
-        xfail('block_diag'),
     })
     def test_eager_compilation_exhaustive(self, device, dtype, op):
 
@@ -359,6 +365,28 @@ class TestEagerFusionOpInfo(TestCase):
             orig_grad = get_grads(args)
             self.assertEqual(orig_grad, compiled_grad)
 
+
+class TestPartitioning(TestCase):
+    def test_recompute_partitioning(self):
+        def fn(a, b):
+            return torch.sin(torch.sin(a)) + b
+
+        # Reference calculation
+        ref_a = torch.rand(10, 10, requires_grad=True)
+        ref_b = torch.rand(10, 10, requires_grad=True)
+        ref = fn(ref_a, ref_b)
+        ref.sum().backward()
+
+        # Compiled function calculation
+        res_a = ref_a.clone().detach().requires_grad_(True)
+        res_b = ref_b.clone().detach().requires_grad_(True)
+        compile_fn = lambda x, _ : x
+        compiled_fn = compiled_function(fn, compile_fn, compile_fn, partition_with_recompute_fwd_in_bwd)
+        res = compiled_fn(res_a, res_b)
+        res.sum().backward()
+        assert torch.allclose(ref, res, atol=1e-3, rtol=1e-3)
+        assert torch.allclose(ref_a.grad, res_a.grad, atol=1e-3, rtol=1e-3)
+        assert torch.allclose(ref_b.grad, res_b.grad, atol=1e-3, rtol=1e-3)
 
 
 only_for = ("cpu")

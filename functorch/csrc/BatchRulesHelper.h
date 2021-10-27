@@ -27,6 +27,7 @@ int64_t rankWithoutBatchDim(const Tensor& tensor, optional<int64_t> maybe_batch_
 int64_t numelWithoutBatchDim(const Tensor& tensor, optional<int64_t> maybe_batch_dim);
 optional<int64_t> valIfNonempty(optional<int64_t> maybe_empty, int64_t new_val);
 int64_t getPhysicalDim(const Tensor& tensor, bool has_batch_dim, int64_t logical_dim);
+VmapDimVector getPhysicalDims(const Tensor& tensor, bool has_batch_dim, IntArrayRef logical_dims);
 
 void vmapIncompatibleInplaceError(const char* schema_name);
 
@@ -392,6 +393,16 @@ inline int64_t get_bdim_size2(
   TORCH_INTERNAL_ASSERT(false);
 }
 
+// [start, start + 1, ..., stop - 1]
+inline VmapDimVector range(int64_t start, int64_t stop) {
+  TORCH_INTERNAL_ASSERT(stop >= start);
+  VmapDimVector dims;
+  dims.reserve(stop - start);
+  for (int64_t i = start; i < stop; i++) {
+    dims.emplace_back(i);
+  }
+  return dims;
+}
 
 }}
 

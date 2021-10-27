@@ -82,6 +82,81 @@ def default_partition(fx_module: fx.GraphModule, _joint_inputs):
     bw_module.graph.lint()
     return fw_module, bw_module
 
+def partition_with_recompute_fwd_in_bwd(joint_module: fx.GraphModule, _joint_inputs):
+    """
+    Partitions the joint graph such that the backward recomputes the forward.
+    Recopmuting helps in trading off memory bandwidth with computation.
+
+    To create the fwd and bwd graph, we copy the joint graph, manually set the
+    outputs to just original forward or backward outputs. And then we run the
+    resulting graphs through dead code elimintation.
+    """
+
+    def _extract_graph_with_given_outputs(joint_graph, outputs, is_fwd=False):
+        """
+        Returns a copy of joint_graph with given outputs.
+
+        If its forward graph, we need extra bookkeeping
+            1) Remove tangent nodes in the input.
+            2) Pass the inputs directly to the output. This will be saved in the
+            backward ctx.
+        """
+        # Set up val_map to be used later for copying the graph
+        val_map = {}
+        saved_nodes = []
+        if is_fwd:
+            # Remove the tangent placeholder nodes from the graph
+            def _tangent_finder(node):
+                return node.op == "placeholder" and "tangents" in node.target
+            tangent_nodes = filter(_tangent_finder, joint_graph.nodes)
+            for tangent_node in tangent_nodes:
+                val_map[tangent_node] = 1
+
+            # Find the saved tensor nodes that will be used by ctx later
+            def _placeholder_finder(node):
+                return node.op == "placeholder" and "tangents" not in node.target
+            saved_nodes = list(filter(_placeholder_finder, joint_graph.nodes))
+
+        # Make a copy of the joint graph
+        graph = fx.Graph()
+        graph.graph_copy(joint_graph, val_map)
+
+        # Set the outputs
+        outputs = outputs + saved_nodes
+        if len(outputs) == 1:
+            graph.output(val_map[outputs[0]])
+        else:
+            graph.output([val_map[out] for out in outputs])
+
+        # Run dead code elimination to remove unnecessary nodes
+        graph.eliminate_dead_code()
+        graph.lint()
+        return graph
+
+    # Find the output node
+    output_node = None
+    for n in reversed(joint_module.graph.nodes):
+        if n.op == "output":
+            output_node = n
+            break
+
+    # Get the forward and backward output nodes
+    num_fwd_outputs = joint_module._out_spec.children_specs[0].num_leaves
+    fwd_outputs = output_node.args[0][0:num_fwd_outputs]
+    bwd_outputs = output_node.args[0][num_fwd_outputs:]
+
+    # Construct the forward module
+    fwd_graph = _extract_graph_with_given_outputs(
+        joint_module.graph, fwd_outputs, is_fwd=True
+    )
+    fwd_module = fx.GraphModule(joint_module, fwd_graph)
+
+    # Construct the backward module
+    bwd_graph = _extract_graph_with_given_outputs(joint_module.graph, bwd_outputs)
+    bwd_module = fx.GraphModule(joint_module, bwd_graph)
+
+    return fwd_module, bwd_module
+
 def create_joint_forward_backward(fn):
     def joint_forward_backward(primals, tangents):
         out = fn(*primals)
@@ -95,6 +170,13 @@ def create_joint_forward_backward(fn):
 def draw_joint_graph(graph, joint_inputs, file_name="full_graph.png"):
     draw_graph(graph, file_name)
     return default_partition(graph, joint_inputs)
+
+def normalize_as_list(x):
+    if isinstance(x, tuple):
+        return list(x)
+    elif isinstance(x, list):
+        return x
+    return [x]
 
 def create_compiled_function(flat_fn, fw_compiler, bw_compiler, partition_fn):
     joint_forward_backward = create_joint_forward_backward(flat_fn)
@@ -121,16 +203,11 @@ def create_compiled_function(flat_fn, fw_compiler, bw_compiler, partition_fn):
                 # print(fw_module.code, bw_module.code)
 
                 compiled_fw = fw_compiler(fw_module, flat_args)
-                fw_outs = compiled_fw(*flat_args)
-
-                if not isinstance(fw_outs, list):
-                    fw_outs = [fw_outs]
+                fw_outs = normalize_as_list(compiled_fw(*flat_args))
 
                 bw_args = fw_outs[num_outs:] + fw_outs[0:num_outs]
                 compiled_bw = bw_compiler(bw_module, bw_args)
-            fw_outs = compiled_fw(*flat_args)
-            if not isinstance(fw_outs, list):
-                fw_outs = [fw_outs]
+            fw_outs = normalize_as_list(compiled_fw(*flat_args))
             ctx.save_for_backward(*fw_outs[num_outs:])
             if num_outs == 1:
                 return fw_outs[0]
@@ -140,9 +217,7 @@ def create_compiled_function(flat_fn, fw_compiler, bw_compiler, partition_fn):
         def backward(ctx, *flat_args):
             # hmm... this doesn't feel right. todo
             contiguous_args = [t.contiguous() for t in flat_args]
-            out = compiled_bw(*ctx.saved_tensors, *contiguous_args)
-            if not isinstance(out, list):
-                out = [out]
+            out = normalize_as_list(compiled_bw(*ctx.saved_tensors, *contiguous_args))
             out_iter = iter(out)
             grad_out = [next(out_iter) if p else None for p in ctx.needs_input_grad]
             return tuple(grad_out)

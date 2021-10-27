@@ -308,18 +308,6 @@ Tensor slice_backward_batching_rule(const Tensor& grad, IntArrayRef input_sizes,
   return grad_physical.getPhysicalToLogicalMap().apply(grad_input);
 }
 
-Tensor movedim_batching_rule(const Tensor& self, IntArrayRef source, IntArrayRef destination) {
-  if (!participatesInCurrentLevel(self)) {
-    c10::impl::ExcludeDispatchKeyGuard guard(kBatchedKey);
-    return at::movedim(self, source, destination);
-  }
-  auto self_physical = MultiBatchVmapTransform::logicalToPhysical(self);
-  auto source_physical = self_physical.getPhysicalDims(source);
-  auto destination_physical = self_physical.getPhysicalDims(destination);
-  auto result = at::movedim(self_physical.tensor(), source_physical, destination_physical);
-  return self_physical.getPhysicalToLogicalMap().apply(result);
-}
-
 std::vector<Tensor> split_batching_rule(const Tensor& self, int64_t split_size, int64_t dim) {
   if (!participatesInCurrentLevel(self)) {
     c10::impl::ExcludeDispatchKeyGuard guard(kBatchedKey);
@@ -354,17 +342,6 @@ std::vector<Tensor> unbind_batching_rule(const Tensor& self, int64_t dim) {
   auto result = at::unbind(self_physical.tensor(), dim_physical);
   self_physical.getPhysicalToLogicalMap().applyInplace(result);
   return result;
-}
-
-Tensor unfold_batching_rule(const Tensor& self, int64_t dim, int64_t size, int64_t step) {
-  if (!participatesInCurrentLevel(self)) {
-    c10::impl::ExcludeDispatchKeyGuard guard(kBatchedKey);
-    return self.unfold(dim, size, step);
-  }
-  auto self_physical = MultiBatchVmapTransform::logicalToPhysical(self);
-  auto dim_physical = self_physical.getPhysicalDim(dim);
-  auto result = self_physical.tensor().unfold(dim_physical, size, step);
-  return self_physical.getPhysicalToLogicalMap().apply(result);
 }
 
 Tensor contiguous_batching_rule(const Tensor& self, MemoryFormat memory_format) {
@@ -895,8 +872,6 @@ TORCH_LIBRARY_IMPL(aten, FT_BATCHED_KEY, m) {
   // m.impl("chunk", chunk_batching_rule);
   m.impl("tensor_split.sections", tensor_split_sections_batching_rule);
   m.impl("tensor_split.indices", tensor_split_indices_batching_rule);
-  m.impl("movedim.intlist", movedim_batching_rule);
-  m.impl("movedim.int", static_cast<Tensor(*)(const Tensor&,int64_t,int64_t)>(native::movedim)); // composite wrt autograd
   // NB: static_cast because there's another variant of narrow. However, we don't
   // want to support the other variant yet bc it isn't documented...
   m.impl("numpy_T", native::numpy_T); // composite wrt autograd
@@ -909,7 +884,6 @@ TORCH_LIBRARY_IMPL(aten, FT_BATCHED_KEY, m) {
   // m.impl("trace", trace_batching_rule);
   m.impl("transpose.int", transpose_int_batching_rule);
   m.impl("unbind.int", unbind_batching_rule);
-  m.impl("unfold", unfold_batching_rule);
   m.impl("unsqueeze_", unsqueeze__batching_rule);
   m.impl("view_as", native::view_as); // composite wrt autograd
 

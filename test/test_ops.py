@@ -307,12 +307,23 @@ class TestOperators(TestCase):
 
     @ops(functorch_lagging_op_db + additional_op_db, allowed_dtypes=(torch.float,))
     @skipOps('TestOperators', 'test_vmapvjp', vjp_fail.union({
+        # All of the following are bugs and need to be fixed
         xfail('clamp', ''),
         xfail('diag_embed'),
         xfail('eig'),
+        xfail('nn.functional.conv_transpose2d'),
+        xfail('nn.functional.pad', 'constant'),
+        xfail('view_as_complex'),
+        xfail('fft.fft'),
+        xfail('fft.ifft'),
+        xfail('fft.ihfft'),
         xfail('fft.ihfft'),
         xfail('fft.rfft'),
+        xfail('fft.rfft'),
+        xfail('fft.fftn'),
         xfail('fft.rfftn'),
+        xfail('fft.ifftn'),
+        xfail('cdist'),
         xfail('fmax'),
         xfail('fmin'),
         xfail('index_add'),
@@ -330,6 +341,7 @@ class TestOperators(TestCase):
         xfail('lu_unpack'),
         xfail('masked_fill'),
         xfail('masked_scatter'),
+        xfail('matrix_exp'),
         xfail('max', 'reduction_no_dim', device_type='cpu'),
         xfail('median', device_type='cpu'),
         xfail('min', 'reduction_no_dim', device_type='cpu'),
@@ -343,14 +355,11 @@ class TestOperators(TestCase):
         xfail('quantile'),
         xfail('symeig'),
         xfail('take'),
-        xfail('unfold'),
-        xfail('view_as_complex'),
         xfail('linalg.tensorinv'),
         xfail('nn.functional.conv_transpose2d', device_type='cuda'),
         xfail('nanmean'),
         xfail('block_diag'),
         xfail('nn.functional.dropout'),
-        xfail('nn.functional.nll_loss'),
     }))
     def test_vmapvjp(self, device, dtype, op):
         # These are too annoying to put into the list above
@@ -374,8 +383,11 @@ class TestOperators(TestCase):
 
     @ops(functorch_lagging_op_db + additional_op_db, allowed_dtypes=(torch.float,))
     @skipOps('TestOperators', 'test_vmapvjp_has_batch_rule', {
+        xfail('nn.functional.pad', 'constant'),
+        xfail('view_as_complex'),
         xfail('__getitem__'),
         xfail('__rpow__'),
+        xfail('addr'),
         xfail('cdist'),
         xfail('cholesky'),
         xfail('clamp'),
@@ -389,9 +401,14 @@ class TestOperators(TestCase):
         xfail('diag'),
         xfail('diag_embed'),
         xfail('eig'),
+        xfail('fft.fft'),
+        xfail('fft.fftn'),
+        xfail('fft.ifft'),
+        xfail('fft.ifftn'),
         xfail('fft.ihfft'),
         xfail('fft.rfft'),
         xfail('fft.rfftn'),
+        xfail('cdist'),
         xfail('fill_'),
         xfail('float_power'),
         xfail('fmax'),
@@ -409,10 +426,12 @@ class TestOperators(TestCase):
         xfail('linalg.eigh'),
         xfail('linalg.eigvals'),
         xfail('linalg.householder_product'),
+        xfail('linalg.lstsq'),
         xfail('linalg.inv'),
         xfail('linalg.matrix_norm'),
         xfail('linalg.matrix_power'),
         xfail('linalg.norm'),
+        xfail('linalg.pinv'),
         xfail('linalg.pinv', 'hermitian'),
         xfail('linalg.slogdet'),
         xfail('linalg.solve'),
@@ -451,6 +470,7 @@ class TestOperators(TestCase):
         xfail('norm', 'fro'),
         xfail('norm', 'inf'),
         xfail('norm', 'nuc'),
+        xfail('pinverse'),
         xfail('pow'),
         xfail('prod'),
         xfail('put'),
@@ -467,7 +487,6 @@ class TestOperators(TestCase):
         xfail('trace'),
         xfail('unfold'),
         xfail('vdot'),
-        xfail('view_as_complex'),
         xfail('nanmean'),
         xfail('nn.functional.layer_norm'),
         xfail('nn.functional.nll_loss'),
@@ -503,6 +522,7 @@ class TestOperators(TestCase):
 
     @ops(functorch_lagging_op_db + additional_op_db, allowed_dtypes=(torch.float,))
     @skipOps('TestOperators', 'test_vjpvmap', vjp_fail.union({
+        # All of the following are bugs and need to be fixed
         xfail('__getitem__'),
         xfail('clamp', ''),
         xfail('dsplit'),
@@ -510,19 +530,19 @@ class TestOperators(TestCase):
         xfail('gradient'),
         xfail('hsplit'),
         xfail('nn.functional.pad', 'circular'),
-        xfail('resolve_conj'),
-        xfail('resolve_neg'),
-        xfail('unfold'),
         xfail('vsplit'),
         xfail('dstack'),
         xfail('hstack'),
         xfail('index_put'),
         xfail('linalg.multi_dot'),
-        xfail('nanmean'),
         xfail('vstack'),
         xfail('block_diag'),
         xfail('nn.functional.batch_norm'),
-        xfail('nn.functional.nll_loss'),
+        xfail('cdist'),
+        xfail('lu_solve'),
+        xfail('lu_unpack'),
+        xfail('matrix_exp'),
+        xfail('view_as_complex'),
     }))
     def test_vjpvmap(self, device, dtype, op):
         # NB: there is no vjpvmap_has_batch_rule test because that is almost
